@@ -5,7 +5,7 @@
 #include <QOpenGLFunctions>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLBuffer>
-
+#include <QOpenGLWidget>
 //#include "drawimage.h"
 //#include "ui_mainwindow.h"
 
@@ -33,6 +33,7 @@ public:
 
 protected slots:
     bool eventFilter(QObject *obj, QEvent *event);
+    void DrawImg();
     void pushMeshVal1();
     void pushMeshVal2();
     void pushMeshVal3();
@@ -43,7 +44,6 @@ protected slots:
     void pushMeshVal8();
 private:
     void initGeometry();
-    void initGeometryTest();
 private:
     QOpenGLBuffer arrayBuf;
     QOpenGLBuffer indexBuf;

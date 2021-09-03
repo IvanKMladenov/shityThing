@@ -6,17 +6,52 @@
 #include <QCoreApplication>
 #include <math.h>
 
+/*
 const float m_mesh[] = {
-    -1.0f, -1.0f, 1.0f, //position
-    1.0f, -1.0f, 1.0f,  //position
-    -1.0f, 1.0f, 1.0f,  //position
-    1.0f, 1.0f, 1.0f    //position
+    -1.0f,-1.0f,-1.0f, // triangle 1 : begin
+    -1.0f,-1.0f, 1.0f,
+    -1.0f, 1.0f, 1.0f, // triangle 1 : end
+    1.0f, 1.0f,-1.0f, // triangle 2 : begin
+    -1.0f,-1.0f,-1.0f,
+    -1.0f, 1.0f,-1.0f, // triangle 2 : end
+    1.0f,-1.0f, 1.0f,
+    -1.0f,-1.0f,-1.0f,
+    1.0f,-1.0f,-1.0f,
+    1.0f, 1.0f,-1.0f,
+    1.0f,-1.0f,-1.0f,
+    -1.0f,-1.0f,-1.0f,
+    -1.0f,-1.0f,-1.0f,
+    -1.0f, 1.0f, 1.0f,
+    -1.0f, 1.0f,-1.0f,
+    1.0f,-1.0f, 1.0f,
+    -1.0f,-1.0f, 1.0f,
+    -1.0f,-1.0f,-1.0f,
+    -1.0f, 1.0f, 1.0f,
+    -1.0f,-1.0f, 1.0f,
+    1.0f,-1.0f, 1.0f,
+    1.0f, 1.0f, 1.0f,
+    1.0f,-1.0f,-1.0f,
+    1.0f, 1.0f,-1.0f,
+    1.0f,-1.0f,-1.0f,
+    1.0f, 1.0f, 1.0f,
+    1.0f,-1.0f, 1.0f,
+    1.0f, 1.0f, 1.0f,
+    1.0f, 1.0f,-1.0f,
+    -1.0f, 1.0f,-1.0f,
+    1.0f, 1.0f, 1.0f,
+    -1.0f, 1.0f,-1.0f,
+    -1.0f, 1.0f, 1.0f,
+    1.0f, 1.0f, 1.0f,
+    -1.0f, 1.0f, 1.0f,
+    1.0f,-1.0f, 1.0f
 };
+*/
 
 DrawImage::DrawImage (QWidget *parent)
     : QOpenGLWidget (parent)
 {
     std::cout << "DrawImage c'tor" << std::endl;
+    m_meshVbo = 0;
 }
 
 //DrawImage::DrawImage ( QVector<float> meshVec, QWidget *parent)
@@ -34,9 +69,9 @@ DrawImage::~DrawImage() {
 //ivz - connect to mainwindow
 void DrawImage::CallDraw()
 {
-  //  makeCurrent();
+    makeCurrent(); //we need this in order to take the same session/context for drawing
     std::cout << "CallDraw" << std::endl;
-    paintGL();
+    this ->paintGL();
 }
 
 void DrawImage::cleanup() {
@@ -44,41 +79,82 @@ void DrawImage::cleanup() {
         return;
     }
     makeCurrent();
-    m_meshVbo.destroy();
+    m_meshVbo = 0;
     delete m_program;
     m_program = nullptr;
-    m_vao.destroy();
+    delete []m_meshData;
     doneCurrent();
 }
 
 static const char* color3= "void main(void) {  gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); }; ";
 
-static const char* vertex3 = "attribute vec3 coordinates;\n void main(void) { gl_Position = vec4(coordinates, 1.0); \n gl_PointSize = 5.0; }";
+static const char* vertex3 = "attribute vec3 coordinates;\n void main(void) { gl_Position = vec4(coordinates, 1.0) ; \n gl_PointSize = 5.0; }";
 
-void DrawImage::initVBO() {
+void DrawImage::mousePressEvent(QMouseEvent *e)
+{
+    // Save mouse press position
+    m_mousePressPosition = QVector2D(e->localPos());
+}
+
+void DrawImage::mouseReleaseEvent(QMouseEvent *e)
+{
+    // Mouse release position - mouse press position
+    QVector2D diff = QVector2D(e->localPos()) - m_mousePressPosition;
+
+    // Rotation axis is perpendicular to the mouse position difference
+    // vector
+    QVector3D n = QVector3D(diff.y(), diff.x(), 0.0).normalized();
+
+    // Accelerate angular speed relative to the length of the mouse sweep
+    qreal acc = diff.length() / 100.0;
+
+    // Calculate new rotation axis as weighted sum
+    m_rotationAxis = (m_rotationAxis * m_angularSpeed + n * acc).normalized();
+
+    // Increase angular speed
+    m_angularSpeed += acc;
+}
+
+void DrawImage::timerEvent(QTimerEvent *)
+{
+    // Decrease angular speed (friction)
+    m_angularSpeed *= 0.99;
+
+    // Stop rotation when speed goes below threshold
+    if (m_angularSpeed < 0.01) {
+        m_angularSpeed = 0.0;
+    } else {
+        // Update rotation
+        m_rotation = QQuaternion::fromAxisAndAngle(m_rotationAxis, m_angularSpeed) * m_rotation;
+
+        // Request an update
+        update();
+    }
+}
+
+GLuint DrawImage::initVBO() {
     //create vbo
-    if (m_meshVbo.create()) {
-        std::cout << "vbo created\r\n";
-    }
+    std::cout << sizeof(m_meshData) << "initVBO\r\n";
 
-    //m_meshVbo.setUsagePattern(QOpenGLBuffer::StaticDraw);
+    GLuint vbo;
+    this->glGenBuffers(1, &vbo);
+    this->glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(m_meshData),m_meshData, GL_STATIC_DRAW);
 
-    if(m_meshVbo.bind()) {
-        std::cout << "vbo binded\r\n";
-    }
-    m_meshVbo.allocate(m_mesh, 16); //mesh contains vetex data
+    return vbo;
 }
 
-void DrawImage::initVAO() {
-    m_vao.create();
-    QOpenGLVertexArrayObject::Binder vaoBinder(&m_vao);
-
-    m_meshVbo.bind();
-
-    int coordhnd = this ->glGetAttribLocation(m_program ->programId(), "coordinates");
-    this ->glEnableVertexAttribArray(coordhnd);
-    this ->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-}
+//GLuint DrawImage::initVAO() {
+//    m_vao.create();
+//    QOpenGLVertexArrayObject::Binder vaoBinder(&m_vao);
+//
+//    m_meshVbo.bind();
+//
+//    int coordhnd = this ->glGetAttribLocation(m_program ->programId(), "coordinates");
+//    this ->glEnableVertexAttribArray(coordhnd);
+//    this ->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+//    return  0;
+//}
 
 void DrawImage::initializeGL() {
 
@@ -90,7 +166,7 @@ void DrawImage::initializeGL() {
     // aboutToBeDestroyed() signal, instead of the destructor. The emission of
     // the signal will be followed by an invocation of initializeGL() where we
     // can recreate all resources.
- //   connect(context(), &QOpenGLContext::aboutToBeDestroyed, this, &DrawImage::cleanup);
+    connect(context(), &QOpenGLContext::aboutToBeDestroyed, this, &DrawImage::cleanup);
 
     std::cout << "initializeGL after connect" << std::endl;
     initializeOpenGLFunctions();
@@ -134,27 +210,37 @@ void DrawImage::initializeGL() {
         qDebug() << "Success biding shader program";
     }
 
-    initVBO();
-    std::cout << m_meshVbo.size() << "\r\n";
-    initVAO();
-    std::cout << m_meshVbo.size() << "\r\n";
+    if (m_meshData != nullptr) {
+        initVBO();
+    }
+//    std::cout << m_meshVbo.size() << "\r\n";
+    //initVAO();
+//    std::cout << m_meshVbo.size() << "\r\n";
 
-    //int coordhnd = this ->glGetAttribLocation(m_program ->programId(), "coordinates");
-    //
-    //this ->glEnableVertexAttribArray(coordhnd);
-    //this ->glVertexAttribPointer(coordhnd, 3, GL_FLOAT, GL_FALSE, 0, 0);
-    m_program ->release();
+    if (m_meshVbo != 0) {
+        this->glBindBuffer(GL_ARRAY_BUFFER, m_meshVbo);
+        int coordhnd = this->glGetAttribLocation(m_program ->programId(), "coordinates");
+        //
+        this->glVertexAttribPointer(coordhnd, 3, GL_FLOAT, GL_TRUE, 0, 0);
+        this->glEnableVertexAttribArray(coordhnd);
+    } else {
+        std::cout << "empty mesh\r\n";
+    }
+//    m_program ->release();
 }
 
 void DrawImage::paintGL() {
 
     std::cout << "paintGL" << std::endl;
 
-    glClearColor(0.7f, 0.7f, 0.7f, 0.0f);
+    this->glClearColor(0.0f, 1.0f, 0.0f, 0.0f);
+    //int d = this->grabFramebuffer().depth();
+    this->glEnable(GL_DEPTH_TEST);
+    this->glDepthFunc(GL_LESS);
 
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glEnable(GL_DEPTH_TEST);
-    std::cout << "paintGL enable plane options" << std::endl;
+    this->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+//    std::cout << "paintGL enable plane options" << std::endl;
+    this->glViewport(this ->x(), this ->y(), this ->width() / 2, this ->height() / 2); //this->width(), this->height());
 
     //m_world.setToIdentity();
     //m_world.rotate(180.0f - (m_xRot / 16.0f), 1, 0, 0);
@@ -163,21 +249,21 @@ void DrawImage::paintGL() {
 
     //std::cout << "paintGL set world" << std::endl;
 
-    QOpenGLVertexArrayObject::Binder vaoBinder(&m_vao);
-    m_program ->bind();
+//    QOpenGLVertexArrayObject::Binder vaoBinder(&m_vao);
+//   m_program ->bind();
 
 
     std::cout << "paintGL before glDrawArrays" << std::endl;
     //std::cout << m_mesh.size() << std::endl;
     //if(m_mesh.size() != 0) {
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    this->glDrawArrays(GL_TRIANGLES, 0, 12*3);
         //glDrawElements(GL_TRIANGLE_STRIP, m_mesh.size(), GL_UNSIGNED_SHORT, &indexBuf);
     //}
-    m_program ->release();
+   //ivz m_program ->release();
 }
 
 void DrawImage::resizeGL(int w, int h) {
 
     std::cout << "resizeGL" << std::endl;
-    glViewport(0, 0, w, h);
+   // this->glViewport(0, 0, w, h);
 }
